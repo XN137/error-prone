@@ -57,9 +57,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.lang.model.element.Name;
 import javax.tools.Diagnostic;
+import javax.tools.FileObject;
 import javax.tools.JavaFileObject;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -617,6 +619,89 @@ public class ErrorProneCompilerIntegrationTest {
         return NO_MATCH;
       }
     }
+  }
+
+  @Test
+  public void checkerBugGood() {
+    runTest("WARN", List.of(1, 2, 3));
+    runTest("WARN", List.of(1, 3, 2));
+    runTest("WARN", List.of(2, 1, 3));
+    runTest("WARN", List.of(2, 3, 1));
+    runTest("WARN", List.of(3, 1, 2));
+    runTest("WARN", List.of(3, 2, 1));
+
+    // fails if 3 comes before 2
+
+    runTest("ERROR", List.of(1, 2, 3));
+    // FAIL: runTest("ERROR", List.of(1, 3, 2));
+    runTest("ERROR", List.of(2, 1, 3));
+    runTest("ERROR", List.of(2, 3, 1));
+    // FAIL: runTest("ERROR", List.of(3, 1, 2));
+    // FAIL: runTest("ERROR", List.of(3, 2, 1));
+  }
+
+  @Test
+  public void checkerBugBad1() {
+    runTest("ERROR", List.of(1, 3, 2));
+  }
+
+  @Test
+  public void checkerBugBad2() {
+    runTest("ERROR", List.of(3, 1, 2));
+  }
+
+  @Test
+  public void checkerBugBad3() {
+    runTest("ERROR", List.of(3, 2, 1));
+  }
+
+  private void runTest(String unusedVariableSeverity, List<Integer> fileOrder) {
+    JavaFileObject file1 = forSourceLines("GenericException.java", """
+        package test;
+        import com.google.errorprone.annotations.FormatMethod;
+        public class GenericException extends Exception {
+          @FormatMethod
+          public GenericException(String message1, Object... args1) {
+            super(String.format(message1, args1));
+          }
+        }
+        """);
+    JavaFileObject file2 = forSourceLines("SpecialException.java", """
+        package test;
+        import com.google.errorprone.annotations.FormatMethod;
+        public class SpecialException extends GenericException {
+          @FormatMethod
+          public SpecialException(String message2, Object... args2) {
+            super(message2, args2);
+          }
+        }
+        """);
+    JavaFileObject file3 = forSourceLines("Violation.java", """
+        package test;
+        public class Violation {
+          public void methodWithViolation() {
+            int x = 0;
+          }
+        }
+        """);
+
+    List<JavaFileObject> allFiles = Arrays.asList(file1, file2, file3);
+    List<JavaFileObject> sources = fileOrder.stream().map(i -> allFiles.get(i - 1)).toList();
+
+    System.out.println("sources files: " + sources.stream()
+        .map(FileObject::getName)
+        .collect(Collectors.joining(", ")));
+
+    String[] args = {
+        "-Xep:UnusedVariable:" + unusedVariableSeverity,
+        "-Xep:FormatStringAnnotation:ERROR"
+    };
+    compiler = compilerBuilder.build();
+    compiler.compile(args, sources);
+    outputStream.flush();
+    String output = diagnosticHelper.getDiagnostics().toString();
+    assertThat(output).contains(": [UnusedVariable]");
+    assertThat(output).doesNotContain(": [FormatStringAnnotation]");
   }
 
   @Test

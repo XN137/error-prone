@@ -2274,6 +2274,10 @@ public class ASTHelpers {
 
   /** Returns whether {@code symbol} is final or effectively final. */
   public static boolean isConsideredFinal(Symbol symbol) {
+    long flags = symbol.flags();
+    boolean isEffectivelyFinal = (flags & Flags.EFFECTIVELY_FINAL) != 0;
+    System.out.println(
+        symbol + " (effectivelyFinal: " + isEffectivelyFinal + ", flags: " + flags + ")");
     return (symbol.flags() & (Flags.FINAL | Flags.EFFECTIVELY_FINAL)) != 0;
   }
 
